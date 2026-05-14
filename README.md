@@ -1,189 +1,190 @@
 # SENTRIA Predictive Maintenance
 
-> Capa de detección temprana de fallas sobre el despliegue SENTRIA existente.
-> Sistema de anomalía y predicción de fallo en líneas de producción industrial,
-> en modo **read-only** (recomendación, no control closed-loop).
+> Anomaly detection layer for industrial production lines. Read-only
+> alerting (no closed-loop control). Ensemble of Isolation Forest, LSTM
+> autoencoder, and ARIMA baseline over multivariate sensor telemetry.
 
-**Status:** Specification phase
-**Target delivery:** Q3 2026
-**Cliente piloto:** Absara (continuación del despliegue SENTRIA actual)
-**Maintainer:** Santiago Álvarez (sanalvcham@gmail.com)
+[![CI](https://github.com/ilsantino/sentria-predictive-maintenance/actions/workflows/ci.yml/badge.svg)](https://github.com/ilsantino/sentria-predictive-maintenance/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org)
+
+**Status:** Spec + working skeleton on synthetic data. Pilot execution Q3 2026.
+**Cliente piloto:** Absara (extensión del despliegue SENTRIA core).
+**Maintainer:** Santiago Álvarez · [iaGO Agency Group](https://github.com/ilsantino)
 
 ---
 
-## 1. Motivación
+## What this is
 
-El sistema SENTRIA ya desplegado en planta de Absara (1,700 empleados, 31 líneas
-de producción, 80+ usuarios activos) registra incidencias en tiempo real con
-ruteo y escalación multi-agente. La capa de **predictive maintenance** explota
-ese histórico estructurado de incidencias junto con telemetría de máquina y
-variables ambientales para anticipar fallos antes de que ocurran.
+The SENTRIA core multi-agent system is already in production on Absara's
+plant (1,700 employees, 31 lines, 80+ users). It logs incidents in real
+time and routes them via WhatsApp to the responsible operator.
 
-El objetivo es producir alertas con **lead-time accionable** sobre el operador
-responsable, sin tomar control de la máquina. La decisión de operar en modo
-recomendación (no closed-loop) responde a contención de riesgo operacional y a
-una etapa inicial de validación de calibración del modelo en producción.
+This repository is the predictive-maintenance extension: a system that
+detects anomalies on multivariate machine telemetry **before** an
+incident is reported, with enough lead-time for the operator to act.
 
-## 2. Alcance del piloto
+It operates in **read-only mode** by design — alerts only, no automated
+shutdowns. Reasons documented in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-- **Líneas en scope:** 3 líneas de producción seleccionadas por su histórico de
-  fallos documentados y disponibilidad de telemetría continua.
-- **Horizonte de predicción:** ventana de alerta de 30 a 180 minutos antes del
-  evento de fallo (lead-time-before-failure).
-- **Modo de operación:** read-only. Las alertas se entregan al operador
-  responsable; no hay shutdown automatizado.
-- **Fuera de scope:** control closed-loop, optimización de mantenimiento
-  preventivo, scheduling de paros programados.
+## Current state
 
-## 3. Arquitectura propuesta
+This repository contains:
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Fuentes de datos                            │
-├─────────────────────────────────────────────────────────────────┤
-│ 1. Telemetría de máquina (sensores: temperatura, vibración,     │
-│    consumo eléctrico, presión)                                  │
-│ 2. Frecuencia y tipo de incidencia por línea (DynamoDB SENTRIA) │
-│ 3. Variables ambientales (temp/humedad de planta, turno, lote)  │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│              Ingesta y feature engineering                      │
-│  AWS Lambda + DynamoDB Streams → S3 (parquet, particionado      │
-│  por línea+día)                                                 │
-│  Features: ventanas deslizantes 5/15/60 min, agregaciones       │
-│  estadísticas, lag features, ratios cruzados                    │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                  Ensamble de modelos                            │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐ │
-│  │ Isolation       │  │ LSTM            │  │ ARIMA           │ │
-│  │ Forest          │  │ Autoencoder     │  │ (baseline)      │ │
-│  │ (anomalía       │  │ (reconstrucción │  │                 │ │
-│  │ multivariada)   │  │ + residuo)      │  │                 │ │
-│  └─────────────────┘  └─────────────────┘  └─────────────────┘ │
-│           Voting / score-level fusion ponderado                 │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│              Alerta y delivery (read-only)                      │
-│  Score > umbral calibrado → Lambda → notificación WhatsApp      │
-│  al operador (mismo canal SENTRIA actual)                       │
-└─────────────────────────────────────────────────────────────────┘
+- **A working Python package** (`sentria_pm`) with three baselines, an
+  ensemble, evaluation metrics, and a CLI. All 55 tests passing.
+- **A synthetic telemetry generator** inspired by NASA C-MAPSS, used
+  for testing the pipeline end-to-end before real data is available.
+- **Full technical specification** for the Q3 2026 pilot in
+  [`docs/`](docs/): architecture, methodology, evaluation plan, data
+  schema, roadmap.
+
+What this **is not**:
+
+- Not trained on real client data (Q3 2026 pilot deliverable).
+- Not deployed to AWS (pilot deliverable).
+- Not a UI (operators consume alerts through SENTRIA core's existing
+  WhatsApp flow).
+
+## Quickstart
+
+```bash
+# Install
+git clone https://github.com/ilsantino/sentria-predictive-maintenance.git
+cd sentria-predictive-maintenance
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+
+# Run the full test suite
+pytest
+
+# Generate synthetic telemetry and run end-to-end evaluation
+sentria-pm evaluate --n-machines 10 --trajectory-length 200
 ```
 
-## 4. Metodología de evaluación
+Example output:
 
-### 4.1 Métricas primarias
+```
+       Evaluation result
++------------------------------+
+| Metric              | Value  |
+|---------------------+--------|
+| Alerts              | 25     |
+| True positives      | 2      |
+| False positives     | 15     |
+| Lead time p50 (min) | 22.5   |
+| Lead time p95 (min) | 24.8   |
++------------------------------+
+```
 
-| Métrica | Definición | Target inicial |
-|---|---|---|
-| Precision @ K | TP / (TP + FP) entre las K alertas más altas por turno | ≥ 0.60 |
-| Recall | TP / (TP + FN) sobre fallos documentados | ≥ 0.50 |
-| F1 | Media armónica de precision y recall | ≥ 0.55 |
-| Lead-time mediano | Mediana de minutos entre alerta correcta y evento de fallo | ≥ 30 min |
-| Tasa de falsa alarma | FP / turno / línea | ≤ 1.0 |
+## Architecture overview
 
-### 4.2 Validación
+```
+Sensors + incidents + env data
+            │
+            ▼
+   ETL → S3 parquet (partitioned by machine + day)
+            │
+            ▼
+   Feature engineering (rolling stats, lags, z-score)
+            │
+            ▼
+   ┌────────────────────────────────────────┐
+   │ Ensemble of three heterogeneous models │
+   │                                        │
+   │  Isolation Forest │ LSTM AE │ ARIMA    │
+   │     (sklearn)    (PyTorch) (statsmodels)│
+   │                                        │
+   │  Fusion: mean / weighted / max         │
+   │  Threshold: per-machine quantile       │
+   └────────────────────────────────────────┘
+            │
+            ▼
+   Read-only alert → WhatsApp via SENTRIA core
+```
 
-- **Hold-out temporal:** partición train/validation/test por bloques de tiempo
-  consecutivos (no random) para preservar dependencia temporal.
-- **Walk-forward evaluation:** evaluación incremental simulando despliegue real.
-- **Comparación contra baseline:** umbral simple de SPC (control estadístico
-  de proceso) sobre telemetría univariada.
+Full architecture in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-### 4.3 Ablations planeadas
+## Methodology highlights
 
-1. Cada modelo del ensamble en aislado (Isolation Forest solo, LSTM-AE solo,
-   ARIMA solo) vs ensamble completo.
-2. Con y sin variables ambientales para medir su contribución marginal.
-3. Con y sin la señal de frecuencia de incidencia histórica (transferencia de
-   conocimiento desde SENTRIA core).
-4. Sensibilidad a la ventana de feature engineering (5 vs 15 vs 60 min).
+- **Event-level evaluation** (not point-wise): one TP per failure event
+  regardless of alert count in window. Prevents alert-storm gaming.
+- **Walk-forward evaluation**: no future data leaks into training.
+- **Per-machine threshold calibration** at a quantile of training-score
+  distribution — each line gets a budget proportional to its own
+  variability.
+- **Heterogeneous ensemble**: density-based (Isolation Forest),
+  reconstruction-based (LSTM AE), and forecast-residual (ARIMA).
+  Designed to fail in different ways so consensus = high confidence.
+- **Read-only by design** — see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+  for the operational and liability reasoning.
 
-### 4.4 Limitaciones documentadas
+Full methodology in [`docs/METHODOLOGY.md`](docs/METHODOLOGY.md).
 
-- **Label noise:** los fallos vienen de reportes manuales de operador; existe
-  subreporting de fallos menores y posible mis-tagging de causa raíz.
-- **Censoring:** intervenciones preventivas no escaladas a incidencia formal
-  no aparecen en el dataset y pueden estar enmascarando señales útiles.
-- **Drift:** condiciones de planta (cambio de SKU, mantenimientos
-  programados, estacionalidad) introducen distribución shift que requerirá
-  re-entrenamiento periódico documentado.
-- **Generalización:** modelos entrenados en 3 líneas; transferencia a otras
-  líneas/plantas requiere validación independiente.
+## Documentation
 
-## 5. Stack
-
-- **Compute:** AWS Lambda (ingesta), SageMaker (entrenamiento y endpoint).
-- **Almacenamiento:** S3 (parquet histórico), DynamoDB (alertas y feedback).
-- **Modelado:** Python 3.11, scikit-learn (Isolation Forest), PyTorch
-  (LSTM Autoencoder), statsmodels (ARIMA), Optuna (TPE para tuning).
-- **Observabilidad:** CloudWatch (logs y métricas), modelo Evidently AI para
-  drift monitoring.
-- **Delivery:** Twilio / WhatsApp Business API (reutiliza pipeline SENTRIA).
-
-## 6. Plan de trabajo (Q3 2026)
-
-| Semana | Hito |
+| Doc | Contents |
 |---|---|
-| W1-W2 | Acuerdo de datos con cliente, instrumentación de telemetría faltante, definición de etiquetas históricas con QA del cliente |
-| W3-W4 | ETL y feature engineering en parquet, EDA, reporte de calidad de datos |
-| W5-W6 | Baseline SPC + ARIMA, evaluación con walk-forward |
-| W7-W8 | Isolation Forest y LSTM-AE, ablations, fusion ponderada |
-| W9-W10 | Calibración de umbrales por línea, simulación de alertas en datos retenidos |
-| W11-W12 | Despliegue read-only shadow (sin notificar a operadores), validación de tasa de falsa alarma |
-| W13+ | Go-live escalonado con un operador piloto por línea |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | High-level system, module map, design decisions |
+| [`docs/METHODOLOGY.md`](docs/METHODOLOGY.md) | Features, models, evaluation framework |
+| [`docs/EVALUATION.md`](docs/EVALUATION.md) | Hypotheses, metrics, ablation matrix, decision rule |
+| [`docs/DATA_SCHEMA.md`](docs/DATA_SCHEMA.md) | Authoritative Pydantic contracts |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Q2 2026 (done) → Q3 (pilot) → Q4 (model card) → Q1 2027 |
 
-## 7. Entregables
+## CLI
 
-1. **Model card** documentando arquitectura, métricas, ablations, casos donde
-   el modelo falla y supuestos operacionales.
-2. **Reporte técnico** (~12-20 páginas) con introducción, trabajo relacionado,
-   metodología, resultados, limitaciones y trabajo futuro. Formato compatible
-   con preprint en arXiv o submission a workshop industrial.
-3. **Dashboard de monitoreo** para el cliente: precisión rolling, tasa de
-   falsa alarma, drift indicators.
-4. **Repositorio reproducible** con código modular, tests y notebooks de
-   ablations.
+```bash
+sentria-pm version              # print version
+sentria-pm generate             # write a synthetic CSV
+sentria-pm evaluate             # generate + fit + score + metrics table
+sentria-pm score <input.csv>    # score a telemetry CSV
+```
 
-## 8. Posicionamiento de investigación
+Full help: `sentria-pm --help`, `sentria-pm <subcommand> --help`.
 
-El proyecto se conecta con líneas activas en la academia y la industria:
+## Project layout
 
-- **Anomaly detection en sistemas industriales con label noise** — área
-  abierta en literatura de PdM (predictive maintenance).
-- **Ensembles heterogéneos para series de tiempo multivariadas** —
-  evaluación comparativa contra modelos unitarios.
-- **Causal vs correlational signals en mantenimiento predictivo** — papel
-  de las variables ambientales y de proceso en alertas accionables.
+```
+sentria-predictive-maintenance/
+├── src/sentria_pm/
+│   ├── data/         # Pydantic schemas, synthetic generator, features
+│   ├── models/       # Isolation Forest, ARIMA, LSTM AE, ensemble
+│   ├── evaluation/   # Event-level metrics + walk-forward harness
+│   ├── utils/        # Rich logging
+│   ├── cli.py        # Typer CLI
+│   └── __main__.py
+├── tests/            # 55 tests across all modules
+├── docs/             # Architecture, methodology, evaluation plan
+├── .github/workflows/ci.yml   # Pytest on 3.10/3.11/3.12 + ruff + mypy
+└── pyproject.toml
+```
 
-Líneas de investigación en sistemas inteligentes que tocan este problema:
-fusión de datos heterogéneos, razonamiento bajo incertidumbre en sistemas de
-monitoreo, evaluación de utilidad downstream de modelos de detección.
+## Tech stack
 
-## 9. Referencias relevantes (selección inicial)
+- **Python 3.10+**, packaging via `hatchling`.
+- **scikit-learn** for Isolation Forest.
+- **statsmodels** for ARIMA.
+- **PyTorch** for the LSTM autoencoder.
+- **Pydantic v2** for data contracts.
+- **typer + rich** for the CLI.
+- **pytest + coverage** for testing.
+- **ruff + mypy** for linting and type-checking.
 
-- Pang, G. et al. *Deep Learning for Anomaly Detection: A Review.* ACM
-  Computing Surveys, 2021.
-- Hundman, K. et al. *Detecting Spacecraft Anomalies Using LSTMs and
-  Nonparametric Dynamic Thresholding.* KDD 2018.
-- Liu, F. T., Ting, K. M., Zhou, Z. H. *Isolation Forest.* ICDM 2008.
-- Box, G. E. P., Jenkins, G. M. *Time Series Analysis: Forecasting and
-  Control.* 5th ed.
-- Saxena, A. et al. *Damage propagation modeling for aircraft engine
-  run-to-failure simulation.* PHM 2008. (Dataset NASA C-MAPSS, referencia
-  metodológica.)
+## How this connects to SENTRIA core
 
----
+The predictive-maintenance layer is **additive** to the existing
+SENTRIA deployment:
 
-## Estado del repositorio
+- It reads the incident stream that SENTRIA core writes to DynamoDB.
+- It pushes alerts through the same WhatsApp pipeline that operators
+  already use.
+- Operators do not learn a new tool. The PM layer either earns its
+  place in their workflow or it gets ignored.
 
-Este repositorio contiene la **especificación técnica** del proyecto. El
-código y los notebooks se añadirán durante la ejecución del piloto a partir
-de Q3 2026. Issues y discusión técnica abiertas para colaboradores
-autorizados.
+## License
+
+MIT — see [`LICENSE`](LICENSE).
+
+## Author
+
+**Santiago Álvarez Chamlati** — Ingeniero de IA Aplicada
+iaGO Agency Group · [LinkedIn](https://www.linkedin.com/in/sanalvarezch) · [github.com/ilsantino](https://github.com/ilsantino)

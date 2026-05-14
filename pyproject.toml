@@ -1,0 +1,78 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sentria-pm"
+version = "0.1.0a0"
+description = "SENTRIA Predictive Maintenance — anomaly detection layer for industrial production lines"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Santiago Álvarez Chamlati", email = "santiago@iagoag.com"},
+]
+keywords = ["predictive-maintenance", "anomaly-detection", "time-series", "industrial-iot"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "numpy>=1.24,<3.0",
+    "pandas>=2.0",
+    "scipy>=1.11",
+    "scikit-learn>=1.3",
+    "statsmodels>=0.14",
+    "torch>=2.0",
+    "pydantic>=2.5",
+    "typer>=0.12",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "types-python-dateutil",
+]
+
+[project.scripts]
+sentria-pm = "sentria_pm.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/ilsantino/sentria-predictive-maintenance"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sentria_pm"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B", "SIM", "RUF"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+strict_optional = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+
+[tool.coverage.run]
+source = ["src/sentria_pm"]
+omit = ["*/tests/*", "*/__main__.py"]
